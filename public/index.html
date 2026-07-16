@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>快手新品分品数据看板 · 局域网共享版</title>
+<title>快手新品分品数据看板 · 公网共享版</title>
 <script src="./echarts.min.js"></script>
 <style>
   :root{
@@ -73,8 +73,8 @@
 </head>
 <body>
 <header>
-  <h1>快手自营新品 · 分品数据看板（局域网共享版）</h1>
-  <p>三层结构：汇总 / 分品每日 / 分品分时 ｜ 同局域网多人协同录入 ｜ 预算阈值预警 ｜ 分品分析自动生成 ｜ 数据存于本机服务器</p>
+  <h1>快手自营新品 · 分品数据看板（公网共享版）</h1>
+  <p>三层结构：汇总 / 分品每日 / 分品分时 ｜ 多人协同录入 ｜ 预算阈值预警 ｜ 分品分析自动生成 ｜ 数据存于云端数据库</p>
 </header>
 
 <div class="tabs">
@@ -90,21 +90,21 @@
 
   <!-- 局域网共享状态面板 -->
   <div class="cloud" id="lanPanel">
-    <h3>🖧 局域网共享（同网多人填写 · 数据存于本机服务器）<span id="lanBadge" class="badge off">连接中…</span></h3>
+    <h3>☁ 公网共享（多人协同填写 · 数据存于云端）<span id="lanBadge" class="badge off">连接中…</span></h3>
     <div class="row">
-      <div><label>本看板访问地址（转发给同局域网同事）</label><input type="text" id="lanUrl" readonly autocomplete="off"></div>
+      <div><label>本看板访问地址（转发给同事即可打开）</label><input type="text" id="lanUrl" readonly autocomplete="off"></div>
       <div><button class="btn-ghost" onclick="copyLanUrl()">复制访问地址</button></div>
       <div><span class="status" id="lanStatusText"></span></div>
     </div>
-    <p class="hint">所有拿到此链接、且与本服务器<b>处于同一局域网</b>的人，打开后填写的数据都会汇总到这一份（存储在本机 <code>data/board.json</code>）。无需任何外部云账号、不依赖外网。<br>
-    若状态显示「未连接」，请确认：① 本服务器程序（server.js）正在运行；② 访问设备与服务器连的是<b>同一个局域网</b>（同一路由器 / 同一公司内网）。</p>
+    <p class="hint">所有拿到此链接的人，打开后填写的数据都会汇总到同一份（存储在腾讯云 CloudBase 数据库）。无需任何外部云账号、不依赖内网。<br>
+    若状态显示「未连接」，可能是服务器正在重启中，请稍等几秒后刷新页面。</p>
   </div>
 
   <!-- 数据源：飞书多维表格 -->
   <div class="cloud" id="feishuPanel">
     <h3>📊 数据源：飞书多维表格 <span class="badge off" id="fsBadge">未配置</span></h3>
     <div class="row" style="margin-bottom:8px">
-      <label style="margin-right:18px"><input type="radio" name="ds" value="lan" id="dsLan" checked onchange="onDataSourceChange()"> 局域网服务器（本机 data/board.json）</label>
+      <label style="margin-right:18px"><input type="radio" name="ds" value="lan" id="dsLan" checked onchange="onDataSourceChange()"> 云端数据库（CloudBase · 多人实时共享）</label>
       <label><input type="radio" name="ds" value="feishu" id="dsFeishu" onchange="onDataSourceChange()"> 飞书多维表格（推荐：同事在飞书直接填表，不受内网隔离影响）</label>
     </div>
     <div id="feishuForm" style="display:none">
@@ -183,7 +183,7 @@
   <footer class="appfoot">
     <span id="buildTag">构建版本：--</span>
     <button class="btn-ghost" onclick="copyLanUrl()">📋 复制访问地址</button>
-    <span id="lanTip">把上方「本看板访问地址」发给同局域网同事即可共享同一份数据。</span>
+    <span id="lanTip">把上方「本看板访问地址」发给同事即可共享同一份数据。</span>
   </footer>
 </div>
 
@@ -665,7 +665,7 @@ async function initData(){
     const st=document.getElementById('lanStatusText');
     if(st) st.textContent = DATA_SOURCE==='feishu'
       ? '已连接飞书多维表格，数据来自在线表格（同事在飞书直接填写，自动汇总）。'
-      : '已连接局域网服务器，数据多人实时共享（存于本机服务器）。';
+      : '已连接云端服务器，数据多人实时共享（存于 CloudBase 数据库）。';
     try{ document.getElementById('lanUrl').value = location.origin; }catch(e){}
     refreshAll();
   }catch(e){
@@ -674,7 +674,7 @@ async function initData(){
     const st=document.getElementById('lanStatusText');
     if(st) st.textContent = DATA_SOURCE==='feishu'
       ? '未能连接飞书多维表格（'+e.message+'）。请检查飞书凭证与网络。'
-      : '未能连接局域网服务器（'+e.message+'）。';
+      : '未能连接云端服务器（'+e.message+'）。';
     try{ const s=localStorage.getItem(STORE_KEY); if(s){ records=JSON.parse(s)||[]; } }catch(e2){}
     showBanner('warn','⚠ 未能连接数据源：'+e.message+'。当前显示本机浏览器缓存（可能不是最新）。');
     refreshAll();
@@ -683,7 +683,7 @@ async function initData(){
 function copyLanUrl(){
   // 严格只复制协议+主机+端口，不带任何路径、查询参数、hash，也不携带表单字段
   const url = (location.protocol + '//' + location.host + '/').replace(/\/$/, '');
-  const done=()=>{ alert('已复制局域网访问地址：\n\n'+url+'\n\n把此链接发给同一局域网的人，打开即可共享同一份数据。'); };
+  const done=()=>{ alert('已复制访问地址：\n\n'+url+'\n\n把此链接发给同事，打开即可共享同一份数据。'); };
   if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(url).then(done).catch(()=>{fallbackCopy(url);done();}); }
   else { fallbackCopy(url); done(); }
 }
