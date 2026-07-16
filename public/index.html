@@ -1,0 +1,725 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>快手新品分品数据看板 · 局域网共享版</title>
+<script src="./echarts.min.js"></script>
+<style>
+  :root{
+    --bg:#f5f7fa; --panel:#ffffff; --ink:#1f2d3d; --sub:#6b7785;
+    --line:#e4e9f0; --brand:#2b6cff; --ok:#1faa59; --warn:#f5a623; --bad:#e8453c;
+    --shadow:0 2px 10px rgba(31,45,61,.06);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,"PingFang SC","Microsoft YaHei",sans-serif;font-size:14px}
+  header{padding:16px 24px;background:var(--panel);border-bottom:1px solid var(--line)}
+  header h1{margin:0;font-size:18px}
+  header p{margin:4px 0 0;color:var(--sub);font-size:12px}
+  .tabs{display:flex;gap:8px;padding:12px 24px 0;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+  .tab{padding:9px 16px;border:1px solid var(--line);border-bottom:none;border-radius:8px 8px 0 0;cursor:pointer;color:var(--sub);background:#fafbfc}
+  .tab.active{background:var(--brand);color:#fff;border-color:var(--brand)}
+  .wrap{padding:20px 24px;max-width:1180px;margin:0 auto}
+  .banner{display:none;padding:12px 16px;border-radius:10px;margin-bottom:16px;font-weight:600}
+  .banner.show{display:block}
+  .banner.bad{background:#fdeceb;color:var(--bad);border:1px solid #f5c2bd}
+  .banner.warn{background:#fff6e5;color:#b9770a;border:1px solid #f5dca0}
+  .cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-bottom:18px}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;box-shadow:var(--shadow)}
+  .card h3{margin:0 0 10px;font-size:14px;display:flex;justify-content:space-between;align-items:center}
+  .pill{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
+  .pill.ok{background:#e6f6ee;color:var(--ok)} .pill.warn{background:#fff1d6;color:#b9770a} .pill.bad{background:#fde3e1;color:var(--bad)}
+  .metric{display:flex;justify-content:space-between;margin:6px 0;font-size:13px}
+  .metric b{font-size:15px}
+  .bar{height:8px;background:#eef1f5;border-radius:6px;overflow:hidden;margin-top:6px}
+  .bar i{display:block;height:100%;background:var(--brand)}
+  .bar i.bad{background:var(--bad)} .bar i.warn{background:var(--warn)}
+  table{width:100%;border-collapse:collapse;background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  th,td{padding:9px 12px;text-align:right;border-bottom:1px solid var(--line);font-size:13px}
+  th:first-child,td:first-child,th:nth-child(2),td:nth-child(2),th:nth-child(3),td:nth-child(3){text-align:left}
+  th{background:#f7f9fc;color:var(--sub);position:sticky;top:0}
+  tr:hover td{background:#fafcff}
+  .filters{display:flex;gap:10px;margin-bottom:12px;flex-wrap:wrap;align-items:center}
+  select,input{padding:7px 10px;border:1px solid var(--line);border-radius:8px;font-size:13px;background:#fff;color:var(--ink)}
+  .form{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:18px;box-shadow:var(--shadow)}
+  .form .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .form label{display:block;font-size:12px;color:var(--sub);margin-bottom:4px}
+  button{cursor:pointer;border:none;border-radius:8px;padding:9px 16px;font-size:13px;font-weight:600}
+  .btn-primary{background:var(--brand);color:#fff}
+  .btn-ghost{background:#eef1f5;color:var(--ink)}
+  .btn-danger{background:var(--bad);color:#fff}
+  .btn-del-row{background:transparent;color:var(--bad);padding:4px 10px;border:1px solid var(--bad);font-size:12px;font-weight:600}
+  .btn-del-row:hover{background:var(--bad);color:#fff}
+  .log{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-top:18px;box-shadow:var(--shadow)}
+  .log h3{margin:0 0 10px;font-size:14px}
+  .analysis .prod{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
+  .analysis h3{margin:0 0 8px}
+  .analysis .dim{margin:8px 0;padding-left:12px;border-left:3px solid var(--brand)}
+  .analysis .tag{display:inline-block;font-size:12px;background:#eef3ff;color:var(--brand);padding:2px 8px;border-radius:6px;margin-right:6px}
+  .chart{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:16px;box-shadow:var(--shadow)}
+  .hint{font-size:12px;color:var(--sub);margin:6px 0 0}
+  .appfoot{display:flex;flex-wrap:wrap;gap:12px;align-items:center;margin-top:24px;padding:14px 16px;border-top:1px dashed var(--line);background:var(--panel);border-radius:0 0 12px 12px;font-size:12px;color:var(--sub)}
+  .appfoot #buildTag{font-family:monospace}
+  .cloud{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-bottom:16px;box-shadow:var(--shadow)}
+  .cloud h3{margin:0 0 8px;font-size:14px;display:flex;align-items:center;gap:8px}
+  .cloud .row{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end}
+  .cloud label{display:block;font-size:12px;color:var(--sub);margin-bottom:4px}
+  .cloud input[type=text]{width:300px}
+  .cloud .status{font-size:12px;margin-left:4px}
+  .badge{font-size:11px;padding:2px 8px;border-radius:20px;font-weight:600}
+  .badge.on{background:#e6f6ee;color:var(--ok)} .badge.off{background:#eef1f5;color:var(--sub)} .badge.err{background:#fde3e1;color:var(--bad)}
+  .cloud code{background:#f1f4f8;padding:1px 5px;border-radius:4px;font-size:11px}
+</style>
+</head>
+<body>
+<header>
+  <h1>快手自营新品 · 分品数据看板（局域网共享版）</h1>
+  <p>三层结构：汇总 / 分品每日 / 分品分时 ｜ 同局域网多人协同录入 ｜ 预算阈值预警 ｜ 分品分析自动生成 ｜ 数据存于本机服务器</p>
+</header>
+
+<div class="tabs">
+  <div class="tab active" data-tab="summary">① 汇总看板</div>
+  <div class="tab" data-tab="daily">② 分品每日</div>
+  <div class="tab" data-tab="hourly">③ 分品分时</div>
+  <div class="tab" data-tab="analysis">④ 分品分析结论</div>
+  <div class="tab" data-tab="input">＋ 录入数据</div>
+</div>
+
+<div class="wrap">
+  <div id="banner" class="banner"></div>
+
+  <!-- 局域网共享状态面板 -->
+  <div class="cloud" id="lanPanel">
+    <h3>🖧 局域网共享（同网多人填写 · 数据存于本机服务器）<span id="lanBadge" class="badge off">连接中…</span></h3>
+    <div class="row">
+      <div><label>本看板访问地址（转发给同局域网同事）</label><input type="text" id="lanUrl" readonly autocomplete="off"></div>
+      <div><button class="btn-ghost" onclick="copyLanUrl()">复制访问地址</button></div>
+      <div><span class="status" id="lanStatusText"></span></div>
+    </div>
+    <p class="hint">所有拿到此链接、且与本服务器<b>处于同一局域网</b>的人，打开后填写的数据都会汇总到这一份（存储在本机 <code>data/board.json</code>）。无需任何外部云账号、不依赖外网。<br>
+    若状态显示「未连接」，请确认：① 本服务器程序（server.js）正在运行；② 访问设备与服务器连的是<b>同一个局域网</b>（同一路由器 / 同一公司内网）。</p>
+  </div>
+
+  <!-- 数据源：飞书多维表格 -->
+  <div class="cloud" id="feishuPanel">
+    <h3>📊 数据源：飞书多维表格 <span class="badge off" id="fsBadge">未配置</span></h3>
+    <div class="row" style="margin-bottom:8px">
+      <label style="margin-right:18px"><input type="radio" name="ds" value="lan" id="dsLan" checked onchange="onDataSourceChange()"> 局域网服务器（本机 data/board.json）</label>
+      <label><input type="radio" name="ds" value="feishu" id="dsFeishu" onchange="onDataSourceChange()"> 飞书多维表格（推荐：同事在飞书直接填表，不受内网隔离影响）</label>
+    </div>
+    <div id="feishuForm" style="display:none">
+      <div class="row">
+        <div><label>飞书 App ID</label><input type="text" id="fsAppId" autocomplete="off" style="width:220px"></div>
+        <div><label>飞书 App Secret</label><input type="password" id="fsAppSecret" autocomplete="off" style="width:220px"></div>
+      </div>
+      <div class="row" style="margin-top:8px">
+        <div><label>多维表格 App Token（网址 base/ 后的串）</label><input type="text" id="fsAppToken" autocomplete="off" style="width:320px"></div>
+        <div><label>数据表 Table ID（表头 tblxxx）</label><input type="text" id="fsTableId" autocomplete="off" style="width:200px"></div>
+        <div><button class="btn-primary" onclick="saveFeishuConfig()">保存并连接</button></div>
+        <div><span class="status" id="fsStatusText"></span></div>
+      </div>
+      <p class="hint">在飞书开放平台建「自建应用」并开通<b>多维表格</b>权限，拿到 App ID / App Secret；新建一个多维表格，网址里 <code>base/【这段】/...</code> 即 App Token，表头 <code>tblxxx</code> 即 Table ID。多维表格需含字段：<b>日期、分时、产品、负责人、消耗、GMV</b>（前四项用「文本」，后两项用「数字」），并把该应用加为表格协作者。<br>保存后看板即从这张表读写；<b>同事在飞书里直接填写即可，无需打开本看板</b>，所有人填的数据自动汇总、实时出图。</p>
+    </div>
+  </div>
+
+  <!-- 汇总 -->
+  <section id="summary" class="view">
+    <div class="chart"><div id="gmvTrend" style="height:300px"></div></div>
+    <div class="chart"><div id="gmvBar" style="height:280px"></div></div>
+    <h3 style="margin:4px 0 10px;font-size:15px">分品概览卡片</h3>
+    <div class="cards" id="summaryCards"></div>
+  </section>
+
+  <!-- 每日 -->
+  <section id="daily" class="view" style="display:none">
+    <div class="filters">
+      <select id="dailyProduct"><option value="">全部产品</option></select>
+      <select id="dailyDate"><option value="">全部日期</option></select>
+    </div>
+    <table id="dailyTable"></table>
+  </section>
+
+  <!-- 分时 -->
+  <section id="hourly" class="view" style="display:none">
+    <div class="filters">
+      <select id="hourlyProduct"><option value="">全部产品</option></select>
+      <select id="hourlyDate"><option value="">全部日期</option></select>
+    </div>
+    <table id="hourlyTable"></table>
+  </section>
+
+  <!-- 分析 -->
+  <section id="analysis" class="view" style="display:none">
+    <div class="analysis" id="analysisBox"></div>
+  </section>
+
+  <!-- 录入 -->
+  <section id="input" class="view" style="display:none">
+    <div class="form">
+      <div style="margin-bottom:12px"><label>当前操作人（用于操作日志留痕）</label><input type="text" id="fOperator" style="width:180px" placeholder="请输入操作人姓名" autocomplete="off"></div>
+      <div class="row">
+        <div><label>日期</label><input type="date" id="fDate" autocomplete="off"></div>
+        <div><label>分时时间点</label><input type="number" id="fHour" min="0" max="23" style="width:90px" autocomplete="off"></div>
+        <div><label>产品名称</label>
+          <select id="fProduct" autocomplete="off"></select>
+        </div>
+        <div><label>负责人（自动带出，可改）</label><input type="text" id="fOwner" style="width:110px" autocomplete="off"></div>
+        <div><label>消耗（元）</label><input type="number" id="fSpend" min="0" style="width:100px" autocomplete="off"></div>
+        <div><label>支付GMV（元）</label><input type="number" id="fGmv" min="0" style="width:100px" autocomplete="off"></div>
+        <div><button class="btn-primary" onclick="addRecord()">提交并汇总</button></div>
+        <div><button class="btn-ghost" onclick="resetData()">加载示例数据（仅测试）</button></div>
+        <div><button class="btn-danger" onclick="clearAllData()">🗑 清除历史数据</button></div>
+      </div>
+      <p class="hint">提交规则：以 (日期, 分时, 产品) 为唯一键，同键后提交覆盖先提交（latest-wins），看板实时重算。录入中的表单内容会自动保留在本浏览器，刷新不丢失。</p>
+    </div>
+    <table id="rawTable"></table>
+    <div class="log">
+      <h3>操作日志（数据清除留痕）</h3>
+      <table id="opLogTable"></table>
+    </div>
+  </section>
+
+  <!-- 底部：版本标识 + 复制访问地址 -->
+  <footer class="appfoot">
+    <span id="buildTag">构建版本：--</span>
+    <button class="btn-ghost" onclick="copyLanUrl()">📋 复制访问地址</button>
+    <span id="lanTip">把上方「本看板访问地址」发给同局域网同事即可共享同一份数据。</span>
+  </footer>
+</div>
+
+<script>
+const PRODUCT_OWNER = {
+  '舒亿加益生菌（范格格）':'范格格',
+  '舒亿加益生菌（刘畅）':'刘畅',
+  '5D超视界蓝莓叶黄素酯片':'牟振宇',
+  '锌硒多维':'牟振宇',
+  '水消消':'牟振宇'
+};
+const BUDGET = {
+  '舒亿加益生菌（范格格）':70000,
+  '舒亿加益生菌（刘畅）':70000,
+  '5D超视界蓝莓叶黄素酯片':70000,
+  '锌硒多维':30000,
+  '水消消':30000
+};
+const PRODUCTS = Object.keys(PRODUCT_OWNER);
+const STORE_KEY = 'ks_dashboard_v1';      // 本地缓存兜底（records）
+const OPERATOR_KEY = 'ks_operator';
+const OPLOG_KEY = 'ks_op_log';
+const FORM_KEY = 'ks_form_v1';
+const BUILD_TAG = '2026-07-15-v13-clean';
+
+// records 与 opLog 为共享数据，来源为局域网服务器；表单草稿与操作人保留在本地浏览器
+let records = [];
+let opLog = [];
+
+// ===== 局域网共享存储（本地 Node 服务器，零外部依赖，数据落盘）=====
+const API = '';
+function keyOf(r){ return r.date+'|'+r.hour+'|'+r.product; }
+async function apiLoad(){
+  const r = await fetch(API + '/api/load', {cache:'no-store'});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return r.json();
+}
+async function apiUpsert(rec){
+  const r = await fetch(API + '/api/records', {method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(rec)});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return (await r.json()).records;
+}
+async function apiDelete(date, hour, product){
+  const q = '?date='+encodeURIComponent(date)+'&hour='+encodeURIComponent(hour)+'&product='+encodeURIComponent(product);
+  const r = await fetch(API + '/api/records'+q, {method:'DELETE'});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return (await r.json()).records;
+}
+async function apiClear(){
+  const r = await fetch(API + '/api/clear', {method:'POST'});
+  if(!r.ok) throw new Error('HTTP '+r.status);
+  return true;
+}
+
+// ===== 飞书多维表格数据源（同事在飞书填表，看板经本地服务器代理读写）=====
+let DATA_SOURCE = 'lan';
+const FS = {
+  async load(){ const r = await fetch('/api/feishu/records'); if(!r.ok) throw new Error('HTTP '+r.status); const j = await r.json(); if(!j.ok) throw new Error(j.error||'飞书读取失败'); return j.records; },
+  async upsert(rec){ const r = await fetch('/api/feishu/records',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(rec)}); const j = await r.json(); if(!j.ok) throw new Error(j.error||'飞书写入失败'); return j.records; },
+  async del(recordId){ const r = await fetch('/api/feishu/records?recordId='+encodeURIComponent(recordId),{method:'DELETE'}); const j = await r.json(); if(!j.ok) throw new Error(j.error||'飞书删除失败'); return j.records; },
+  async clearAll(){ const all = await this.load(); for(const rec of all){ await this.del(rec._id); } return []; }
+};
+async function loadData(){
+  if(DATA_SOURCE==='feishu'){ records = await FS.load(); opLog = []; }
+  else { const d = await apiLoad(); records = d.records||[]; opLog = d.opLog||[]; }
+}
+async function saveUpsert(rec){
+  if(DATA_SOURCE==='feishu'){ records = await FS.upsert(rec); }
+  else { records = await apiUpsert(rec); }
+}
+async function saveDelete(rec){
+  if(DATA_SOURCE==='feishu'){ records = await FS.del(rec._id); }
+  else { records = await apiDelete(rec.date, rec.hour, rec.product); }
+}
+async function saveClear(){
+  if(DATA_SOURCE==='feishu'){ records = await FS.clearAll(); opLog = []; }
+  else { await apiClear(); }
+}
+function setLanBadge(state, text){
+  const b=document.getElementById('lanBadge');
+  if(!b) return;
+  b.className='badge '+(state==='on'?'on':state==='err'?'err':'off');
+  b.textContent=text;
+}
+function showBanner(cls, text){
+  const b=document.getElementById('banner');
+  b.className='banner show '+(cls==='bad'?'bad':cls==='warn'?'warn':'');
+  b.textContent=text;
+}
+
+// ===== 表单草稿持久化（按浏览器 localStorage，刷新保留已填写内容）=====
+function saveForm(){
+  const fp=document.getElementById('fProduct');
+  const data={
+    date:document.getElementById('fDate').value,
+    hour:document.getElementById('fHour').value,
+    product:fp?fp.value:'',
+    owner:document.getElementById('fOwner').value,
+    spend:document.getElementById('fSpend').value,
+    gmv:document.getElementById('fGmv').value
+  };
+  try{ localStorage.setItem(FORM_KEY, JSON.stringify(data)); }catch(e){}
+}
+function loadForm(){
+  try{
+    const s=localStorage.getItem(FORM_KEY); if(!s) return;
+    const d=JSON.parse(s);
+    if(d.date) document.getElementById('fDate').value=d.date;
+    if(d.hour!==undefined && d.hour!=='') document.getElementById('fHour').value=d.hour;
+    const fp=document.getElementById('fProduct');
+    if(d.product && fp && [...fp.options].some(o=>o.value===d.product)) fp.value=d.product;
+    if(d.owner!==undefined) document.getElementById('fOwner').value=d.owner;
+    if(d.spend!==undefined && d.spend!=='') document.getElementById('fSpend').value=d.spend;
+    if(d.gmv!==undefined && d.gmv!=='') document.getElementById('fGmv').value=d.gmv;
+  }catch(e){}
+}
+
+// ===== 示例数据 =====
+function pseudo(i){ const x = Math.sin(i*12.9898)*43758.5453; return x - Math.floor(x); }
+function seed(){
+  const recs=[]; let i=0;
+  const dates=['2026-07-10','2026-07-11','2026-07-12','2026-07-13'];
+  const hours=[9,12,15,18,21];
+  const cfg={
+    '舒亿加益生菌（范格格）':{sp:[3000,1500], roi:[0.8,1.4]},
+    '舒亿加益生菌（刘畅）':{sp:[2600,1400], roi:[0.9,1.5]},
+    '5D超视界蓝莓叶黄素酯片':{sp:[2800,900], roi:[0.7,1.6]},
+    '锌硒多维':{sp:[1200,800], roi:[0.9,1.5]},
+    '水消消':{sp:[1000,600], roi:[0.8,1.3]}
+  };
+  PRODUCTS.forEach(p=>{
+    dates.forEach(d=>{
+      hours.forEach(h=>{
+        const c=cfg[p];
+        const spend=c.sp[0]+pseudo(i*1.3)*c.sp[1];
+        const roi=c.roi[0]+pseudo(i*2.7)*c.roi[1];
+        const gmv=spend*roi;
+        recs.push({date:d,hour:h,product:p,owner:PRODUCT_OWNER[p],spend:Math.round(spend),gmv:Math.round(gmv)});
+        i++;
+      });
+    });
+  });
+  return recs;
+}
+
+function fmt(n){ return '¥'+Math.round(n).toLocaleString(); }
+function sum(arr,f){ return arr.reduce((a,b)=>a+f(b),0); }
+
+// 聚合
+function productTotals(){
+  const m={}; PRODUCTS.forEach(p=>m[p]={spend:0,gmv:0,owner:PRODUCT_OWNER[p]});
+  records.forEach(r=>{ if(!m[r.product]) return; m[r.product].spend+=r.spend; m[r.product].gmv+=r.gmv; });
+  return m;
+}
+function dailyTotals(){ const m={}; records.forEach(r=>{ m[r.date]=(m[r.date]||0)+r.gmv; }); return m; }
+function dailyByProduct(){
+  const m={};
+  records.forEach(r=>{ const k=r.date+'|'+r.product; if(!m[k]) m[k]={date:r.date,product:r.product,owner:r.owner,spend:0,gmv:0}; m[k].spend+=r.spend; m[k].gmv+=r.gmv; });
+  return Object.values(m);
+}
+function hourlyByProduct(){
+  const m={};
+  records.forEach(r=>{ const k=r.date+'|'+r.hour+'|'+r.product; if(!m[k]) m[k]={date:r.date,hour:r.hour,product:r.product,owner:r.owner,spend:0,gmv:0}; m[k].spend+=r.spend; m[k].gmv+=r.gmv; });
+  return Object.values(m);
+}
+function productDailyGmv(p){
+  const m={}; records.forEach(r=>{ if(r.product===p){ m[r.date]=(m[r.date]||0)+r.gmv; } });
+  return m;
+}
+function statusOf(p,spend){
+  const th=BUDGET[p];
+  if(spend>=th) return {cls:'bad',txt:'已达阈值·转全站'};
+  if(spend>=th*0.8) return {cls:'warn',txt:'接近阈值'};
+  return {cls:'ok',txt:'正常'};
+}
+
+// 渲染：汇总
+let chartTrend, chartBar;
+function renderSummary(){
+  const dt=dailyTotals(); const dates=Object.keys(dt).sort();
+  const gmvSeries=dates.map(d=>dt[d]);
+  if(!chartTrend) chartTrend=echarts.init(document.getElementById('gmvTrend'));
+  chartTrend.setOption({
+    title:{text:'日维度 · 所有品支付GMV汇总',left:'center',textStyle:{fontSize:14}},
+    tooltip:{trigger:'axis'},
+    xAxis:{type:'category',data:dates},
+    yAxis:{type:'value',axisLabel:{formatter:v=>'¥'+(v/1000)+'k'}},
+    series:[{type:'line',smooth:true,areaStyle:{},data:gmvSeries,itemStyle:{color:'#2b6cff'}}]
+  });
+  const pt=productTotals();
+  if(!chartBar) chartBar=echarts.init(document.getElementById('gmvBar'));
+  chartBar.setOption({
+    title:{text:'分品 · 累计支付GMV对比',left:'center',textStyle:{fontSize:14}},
+    tooltip:{trigger:'axis'},
+    xAxis:{type:'category',data:PRODUCTS},
+    yAxis:{type:'value',axisLabel:{formatter:v=>'¥'+(v/1000)+'k'}},
+    series:[{type:'bar',data:PRODUCTS.map(p=>pt[p].gmv),itemStyle:{color:'#2b6cff'}}]
+  });
+  const box=document.getElementById('summaryCards'); box.innerHTML='';
+  PRODUCTS.forEach(p=>{
+    const t=pt[p]; const roi=t.spend? t.gmv/t.spend:0; const th=BUDGET[p];
+    const pct=Math.min(100, t.spend/th*100); const st=statusOf(p,t.spend);
+    const barCls = st.cls==='bad'?'bad':(st.cls==='warn'?'warn':'');
+    box.innerHTML+=`<div class="card">
+      <h3>${p}<span class="pill ${st.cls}">${st.txt}</span></h3>
+      <div class="metric"><span>负责人</span><b>${t.owner}</b></div>
+      <div class="metric"><span>总消耗</span><b>${fmt(t.spend)}</b></div>
+      <div class="metric"><span>支付GMV</span><b>${fmt(t.gmv)}</b></div>
+      <div class="metric"><span>整体ROI</span><b>${roi.toFixed(2)}</b></div>
+      <div class="metric"><span>距阈值进度</span><b>${pct.toFixed(0)}%</b></div>
+      <div class="bar"><i class="${barCls}" style="width:${pct}%"></i></div>
+      <div class="hint">阈值 ${fmt(th)}</div>
+    </div>`;
+  });
+}
+
+// 渲染：每日
+function renderDaily(){
+  const p=document.getElementById('dailyProduct').value, d=document.getElementById('dailyDate').value;
+  let rows=dailyByProduct().filter(r=>(!p||r.product===p)&&(!d||r.date===d));
+  rows.sort((a,b)=> a.date<b.date?1:-1 || a.product.localeCompare(b.product));
+  let html='<thead><tr><th>日期</th><th>产品名称</th><th>负责人</th><th>消耗</th><th>支付GMV</th><th>当日累计ROI</th></tr></thead><tbody>';
+  rows.forEach(r=>{ const roi=r.spend? r.gmv/r.spend:0; html+=`<tr><td>${r.date}</td><td>${r.product}</td><td>${r.owner}</td><td>${fmt(r.spend)}</td><td>${fmt(r.gmv)}</td><td>${roi.toFixed(2)}</td></tr>`; });
+  html+='</tbody>';
+  document.getElementById('dailyTable').innerHTML=html;
+}
+// 渲染：分时（含当日累计ROI运行值）
+function renderHourly(){
+  const p=document.getElementById('hourlyProduct').value, d=document.getElementById('hourlyDate').value;
+  let rows=hourlyByProduct().filter(r=>(!p||r.product===p)&&(!d||r.date===d));
+  rows.sort((a,b)=> a.date.localeCompare(b.date)||a.product.localeCompare(b.product)||a.hour-b.hour);
+  const run={};
+  rows.forEach(r=>{ const k=r.date+'|'+r.product; if(!run[k]) run[k]={sp:0,gm:0}; run[k].sp+=r.spend; run[k].gm+=r.gmv; r._roi=run[k].sp? run[k].gm/run[k].sp:0; });
+  let html='<thead><tr><th>日期</th><th>分时</th><th>产品名称</th><th>负责人</th><th>消耗</th><th>支付GMV</th><th>当日累计ROI</th></tr></thead><tbody>';
+  rows.forEach(r=>{ html+=`<tr><td>${r.date}</td><td>${r.hour}:00</td><td>${r.product}</td><td>${r.owner}</td><td>${fmt(r.spend)}</td><td>${fmt(r.gmv)}</td><td>${r._roi.toFixed(2)}</td></tr>`; });
+  html+='</tbody>';
+  document.getElementById('hourlyTable').innerHTML=html;
+}
+
+// 渲染：分析
+function renderAnalysis(){
+  const pt=productTotals(); const box=document.getElementById('analysisBox'); box.innerHTML='';
+  PRODUCTS.forEach(p=>{
+    const t=pt[p]; const roi=t.spend? t.gmv/t.spend:0; const th=BUDGET[p]; const st=statusOf(p,t.spend);
+    const dg=productDailyGmv(p); const ds=Object.keys(dg).sort();
+    const first=dg[ds[0]]||0, last=dg[ds[ds.length-1]]||0;
+    const trendPct = first? ((last-first)/first*100):0;
+    let recs=[];
+    if(roi<1) recs.push('整体ROI<1，当前投放亏损：控消耗、暂停低效素材/时段、优化人群与落地页。');
+    else if(roi<1.5) recs.push('ROI转正但未达优秀：小步加量测试高转化时段。');
+    else recs.push('ROI≥1.5 表现优秀：追加预算放大规模。');
+    if(st.cls==='bad') recs.push('已达转全站推广阈值，建议切换全站推广以拓展流量。');
+    else if(st.cls==='warn') recs.push('消耗已接近阈值，提前准备全站推广素材与计划。');
+    box.innerHTML+=`<div class="prod">
+      <h3>${p} <span class="pill ${st.cls}">${st.txt}</span></h3>
+      <div class="metric"><span>总消耗 ${fmt(t.spend)} ｜ 支付GMV ${fmt(t.gmv)} ｜ 整体ROI <b>${roi.toFixed(2)}</b> ｜ 阈值 ${fmt(th)}</span></div>
+      <div class="dim"><span class="tag">消耗效率</span>累计消耗占阈值 ${(t.spend/th*100).toFixed(0)}%，整体ROI ${roi.toFixed(2)}。${roi<1?'⚠ 单位消耗产出为负收益，需排查无效时段。':'单位消耗产出健康。'}</div>
+      <div class="dim"><span class="tag">GMV趋势</span>日GMV从 ${fmt(first)} 到 ${fmt(last)}（${trendPct>=0?'+':''}${trendPct.toFixed(0)}%），${trendPct>0?'呈上升趋势，放量可持续':'出现回落，需关注流量承接'}。</div>
+      <div class="dim"><span class="tag">ROI表现</span>整体ROI ${roi.toFixed(2)}，建议核对各分时ROI波动，对高ROI时段加权、低ROI时段止损。</div>
+      <div class="dim"><span class="tag">优化建议</span>${recs.join(' ')}</div>
+    </div>`;
+  });
+}
+
+// 预警横幅
+function renderBanner(){
+  const pt=productTotals(); const b=document.getElementById('banner'); let bad='',warn='';
+  PRODUCTS.forEach(p=>{
+    const t=pt[p]; const th=BUDGET[p];
+    if(t.spend>=th) bad+=`【${p}】累计消耗已达 ${fmt(t.spend)}（阈值 ${fmt(th)}），建议转全站推广。 `;
+    else if(t.spend>=th*0.8) warn+=`【${p}】消耗已达阈值 ${(t.spend/th*100).toFixed(0)}%，请准备全站推广素材与计划。 `;
+  });
+  if(bad){ b.className='banner show bad'; b.textContent='🔴 预算预警：'+bad; }
+  else if(warn){ b.className='banner show warn'; b.textContent='🟡 前置提醒：'+warn; }
+  else { b.className='banner'; b.textContent=''; }
+}
+
+// 录入：提交并汇总
+async function addRecord(){
+  const date=document.getElementById('fDate').value;
+  const hour=parseInt(document.getElementById('fHour').value,10);
+  const product=document.getElementById('fProduct').value;
+  const owner=document.getElementById('fOwner').value||PRODUCT_OWNER[product];
+  const spend=Math.max(0,parseFloat(document.getElementById('fSpend').value)||0);
+  const gmv=Math.max(0,parseFloat(document.getElementById('fGmv').value)||0);
+  if(!date||!product){ alert('请填写日期与产品'); return; }
+  const rec={date, hour, product, owner, spend:Math.round(spend), gmv:Math.round(gmv)};
+  // 本地即时更新 + 持久化表单草稿
+  const idx=records.findIndex(r=>r.date===date&&r.hour===hour&&r.product===product);
+  if(idx>=0) records[idx]=rec; else records.push(rec);
+  saveForm(); refreshAll();
+  // 同步到数据源（共享）
+  try{
+    records = await saveUpsert(rec);
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify(records)); }catch(e){}
+    setLanBadge('on', DATA_SOURCE==='feishu'?'已连飞书':'已连接');
+    refreshAll();
+  }catch(e){
+    setLanBadge('err','同步失败');
+    alert('本地已更新，但同步到数据源失败：'+e.message);
+  }
+}
+
+// 加载示例数据（仅用于本地测试/演示，会覆盖当前全部数据）
+async function resetData(){
+  if(DATA_SOURCE==='feishu'){ alert('飞书模式下不支持「加载示例数据」（避免污染你的多维表格）。请在飞书里直接清空表格，或使用「清除历史数据」。'); return; }
+  const ok = confirm('⚠️ 确认加载示例数据？\n\n这会先清空当前服务器上的全部记录，再用模拟数据填满表格。此操作仅用于测试/演示，正式使用时不要点击。');
+  if(!ok) return;
+  records = seed();
+  try{
+    await apiClear();
+    for(const rec of records){ records = await apiUpsert(rec); }
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify(records)); }catch(e){}
+    setLanBadge('on','已连接');
+  }catch(e){
+    setLanBadge('err','同步失败');
+    alert('加载失败（服务器未连接）：'+e.message);
+  }
+  refreshAll(); alert('已加载示例数据（仅供测试）');
+}
+
+// 操作人 & 操作日志
+function getOperator(){ const o=document.getElementById('fOperator'); return (o&&o.value.trim()) || localStorage.getItem(OPERATOR_KEY) || '未填写'; }
+function saveOperator(){ const o=document.getElementById('fOperator'); if(o&&o.value.trim()){ try{ localStorage.setItem(OPERATOR_KEY, o.value.trim()); }catch(e){} } }
+function renderOpLog(){
+  const log=opLog;
+  let html='<thead><tr><th>操作时间</th><th>操作人</th><th>操作类型</th><th>清除记录数</th></tr></thead>';
+  if(log.length===0){ html+='<tbody><tr><td colspan="4" style="text-align:center;color:#6b7785">暂无操作记录</td></tr></tbody>'; }
+  else{
+    log.slice().reverse().forEach(l=>{ html+=`<tr><td>${l.time}</td><td>${l.operator}</td><td>${l.action}</td><td>${l.count}</td></tr>`; });
+    html+='</tbody>';
+  }
+  const t=document.getElementById('opLogTable'); if(t) t.innerHTML=html;
+}
+function pad(n){ return String(n).padStart(2,'0'); }
+function nowStamp(){ const d=new Date(); return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate())+' '+pad(d.getHours())+':'+pad(d.getMinutes())+':'+pad(d.getSeconds()); }
+function resetForm(){
+  const d=new Date();
+  document.getElementById('fDate').value = d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+  document.getElementById('fHour').value = 12;
+  if(document.getElementById('fProduct').options.length) document.getElementById('fProduct').selectedIndex = 0;
+  document.getElementById('fOwner').value = PRODUCT_OWNER[document.getElementById('fProduct').value] || '';
+  document.getElementById('fSpend').value = 0;
+  document.getElementById('fGmv').value = 0;
+  saveOperator();
+}
+async function clearAllData(){
+  const cnt = records.length;
+  const ok = confirm('⚠️ 确认清除所有已录入的分时数据？\n\n将删除全部 '+cnt+' 条记录，并同时清空操作日志、操作人缓存与表单已填写内容，且均不可恢复。\n清除后页面刷新也将保持空白状态，需从零开始重新录入。');
+  if(!ok) return;
+  records = [];
+  opLog = [];
+  // 推送清空到数据源（共享数据一并清空）
+  try{
+    await saveClear();
+    setLanBadge('on', DATA_SOURCE==='feishu'?'已连飞书':'已连接');
+  }catch(e){
+    setLanBadge('err','同步失败');
+  }
+  try{ localStorage.setItem(STORE_KEY, '[]'); }catch(e){}
+  try{ localStorage.setItem(OPLOG_KEY, '[]'); }catch(e){}
+  try{ localStorage.removeItem(OPERATOR_KEY); }catch(e){}
+  clearForm();
+  refreshAll();
+  alert('已彻底清除 '+cnt+' 条历史数据、全部操作日志、操作人缓存及表单内容，页面刷新后将保持空白状态。');
+}
+function clearForm(){
+  document.getElementById('fOperator').value = '';
+  document.getElementById('fDate').value = '';
+  document.getElementById('fHour').value = '';
+  const fp = document.getElementById('fProduct');
+  if(fp.options.length) fp.selectedIndex = 0;
+  document.getElementById('fOwner').value = '';
+  document.getElementById('fSpend').value = '';
+  document.getElementById('fGmv').value = '';
+  saveForm();
+}
+
+// 录入表单产品下拉（仅初始化一次，避免刷新时清空已选产品/负责人）
+function populateProductSelect(){
+  const fp=document.getElementById('fProduct');
+  fp.innerHTML='<option value="">请选择产品</option>';
+  PRODUCTS.forEach(p=>fp.add(new Option(p,p)));
+  fp.onchange=()=>{ const ov=PRODUCT_OWNER[fp.value]; if(ov) document.getElementById('fOwner').value=ov; };
+}
+// 过滤器填充（仅用于每日/分时看板筛选，不触碰录入表单）
+function fillFilters(){
+  const dp=document.getElementById('dailyProduct'), hp=document.getElementById('hourlyProduct');
+  [dp,hp].forEach(s=>{ s.innerHTML='<option value="">全部产品</option>'; });
+  PRODUCTS.forEach(p=>{ dp.add(new Option(p,p)); hp.add(new Option(p,p)); });
+  const dates=[...new Set(records.map(r=>r.date))].sort();
+  const dd=document.getElementById('dailyDate'), hd=document.getElementById('hourlyDate');
+  dd.innerHTML='<option value="">全部日期</option>'; hd.innerHTML='<option value="">全部日期</option>';
+  dates.forEach(d=>{ dd.add(new Option(d,d)); hd.add(new Option(d,d)); });
+  dp.onchange=renderDaily; dd.onchange=renderDaily;
+  hp.onchange=renderHourly; hd.onchange=renderHourly;
+}
+function refreshAll(){
+  fillFilters(); renderBanner(); renderSummary(); renderDaily(); renderHourly(); renderAnalysis(); renderRaw(); renderOpLog();
+}
+function renderRaw(){
+  let html='<thead><tr><th>日期</th><th>分时</th><th>产品</th><th>负责人</th><th>消耗</th><th>支付GMV</th><th>操作</th></tr></thead><tbody>';
+  const indexed = records.map((rec, idx)=>({rec, idx}));
+  const r = indexed.sort((a,b)=>a.rec.date.localeCompare(b.rec.date)||a.rec.product.localeCompare(b.rec.product)||a.rec.hour-b.rec.hour);
+  r.slice(-30).reverse().forEach(({rec, idx})=>{
+    html+=`<tr><td>${rec.date}</td><td>${rec.hour}:00</td><td>${rec.product}</td><td>${rec.owner}</td><td>${fmt(rec.spend)}</td><td>${fmt(rec.gmv)}</td><td><button class="btn-del-row" onclick="deleteRecord(${idx})">删除</button></td></tr>`;
+  });
+  html+='</tbody>';
+  const t=document.getElementById('rawTable'); if(t) t.innerHTML=html;
+}
+async function deleteRecord(idx){
+  const rec = records[idx];
+  if(!rec) return;
+  const ok = confirm(`确认删除这条分时记录？\n\n日期：${rec.date}\n分时：${rec.hour}:00\n产品：${rec.product}\n消耗：${fmt(rec.spend)}\n支付GMV：${fmt(rec.gmv)}\n\n删除后不可恢复。`);
+  if(!ok) return;
+  try{
+    records = await saveDelete(rec);
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify(records)); }catch(e){}
+    setLanBadge('on', DATA_SOURCE==='feishu'?'已连飞书':'已连接');
+    alert('已删除单条分时记录。');
+    refreshAll();
+  }catch(e){
+    alert('删除失败：'+e.message);
+  }
+}
+
+// ===== 数据源：初始化加载共享数据 =====
+function showFeishuForm(show){
+  const f=document.getElementById('feishuForm'); if(f) f.style.display = show? 'block':'none';
+}
+function setFsBadge(state, text){
+  const b=document.getElementById('fsBadge'); if(!b) return;
+  b.className='badge '+(state==='on'?'on':state==='err'?'err':'off');
+  b.textContent=text;
+}
+function onDataSourceChange(){
+  const lan = document.getElementById('dsLan').checked;
+  DATA_SOURCE = lan? 'lan':'feishu';
+  showFeishuForm(!lan);
+  initData();
+}
+async function saveFeishuConfig(){
+  const appId=document.getElementById('fsAppId').value.trim();
+  const appSecret=document.getElementById('fsAppSecret').value.trim();
+  const appToken=document.getElementById('fsAppToken').value.trim();
+  const tableId=document.getElementById('fsTableId').value.trim();
+  if(!appId||!appSecret||!appToken||!tableId){ alert('请填齐 App ID / App Secret / App Token / Table ID'); return; }
+  const st=document.getElementById('fsStatusText'); st.textContent='保存中…';
+  try{
+    const r=await fetch('/api/feishu/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appId,appSecret,appToken,tableId})});
+    const j=await r.json();
+    if(!j.ok) throw new Error(j.error||'保存失败');
+    DATA_SOURCE='feishu';
+    setFsBadge('on','已配置');
+    st.textContent='已保存，正在连接…';
+    await initData();
+    st.textContent='飞书已连接，数据来自在线表格 ✓';
+  }catch(e){ setFsBadge('err','连接失败'); st.textContent='连接失败：'+e.message; alert('飞书连接失败：'+e.message); }
+}
+async function initData(){
+  // 自动识别：若服务端已存飞书凭证，则默认走飞书
+  // 注意：本函数绝不会自动加载/生成示例数据；数据源为空时页面保持空白。
+  try{
+    const cfg = await fetch('/api/feishu/config').then(r=>r.json());
+    if(cfg && cfg.hasConfig){
+      DATA_SOURCE='feishu';
+      const f=document.getElementById('dsFeishu'); if(f) f.checked=true;
+      showFeishuForm(true);
+      setFsBadge('on','已配置');
+      if(cfg.appToken) document.getElementById('fsAppToken').value=cfg.appToken;
+      if(cfg.tableId) document.getElementById('fsTableId').value=cfg.tableId;
+    }
+  }catch(e){}
+  setLanBadge('off','连接中…');
+  try{
+    await loadData();
+    try{ localStorage.setItem(STORE_KEY, JSON.stringify(records)); }catch(e){} // 本地缓存兜底
+    setLanBadge('on', DATA_SOURCE==='feishu'?'已连飞书':'已连接');
+    const st=document.getElementById('lanStatusText');
+    if(st) st.textContent = DATA_SOURCE==='feishu'
+      ? '已连接飞书多维表格，数据来自在线表格（同事在飞书直接填写，自动汇总）。'
+      : '已连接局域网服务器，数据多人实时共享（存于本机服务器）。';
+    try{ document.getElementById('lanUrl').value = location.origin; }catch(e){}
+    refreshAll();
+  }catch(e){
+    // 数据源未连接：用本地缓存兜底，避免白屏
+    setLanBadge('err','未连接');
+    const st=document.getElementById('lanStatusText');
+    if(st) st.textContent = DATA_SOURCE==='feishu'
+      ? '未能连接飞书多维表格（'+e.message+'）。请检查飞书凭证与网络。'
+      : '未能连接局域网服务器（'+e.message+'）。';
+    try{ const s=localStorage.getItem(STORE_KEY); if(s){ records=JSON.parse(s)||[]; } }catch(e2){}
+    showBanner('warn','⚠ 未能连接数据源：'+e.message+'。当前显示本机浏览器缓存（可能不是最新）。');
+    refreshAll();
+  }
+}
+function copyLanUrl(){
+  // 严格只复制协议+主机+端口，不带任何路径、查询参数、hash，也不携带表单字段
+  const url = (location.protocol + '//' + location.host + '/').replace(/\/$/, '');
+  const done=()=>{ alert('已复制局域网访问地址：\n\n'+url+'\n\n把此链接发给同一局域网的人，打开即可共享同一份数据。'); };
+  if(navigator.clipboard&&navigator.clipboard.writeText){ navigator.clipboard.writeText(url).then(done).catch(()=>{fallbackCopy(url);done();}); }
+  else { fallbackCopy(url); done(); }
+}
+
+// tab 切换
+document.querySelectorAll('.tab').forEach(tab=>{
+  tab.onclick=()=>{
+    document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+    tab.classList.add('active');
+    document.querySelectorAll('.view').forEach(v=>v.style.display='none');
+    document.getElementById(tab.dataset.tab).style.display='block';
+    if(tab.dataset.tab==='summary'){ renderSummary(); }
+  };
+});
+function fallbackCopy(text){
+  try{
+    const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
+    document.body.appendChild(ta); ta.select(); document.execCommand('copy'); document.body.removeChild(ta);
+  }catch(e){}
+}
+window.onresize=()=>{ chartTrend&&chartTrend.resize(); chartBar&&chartBar.resize(); };
+// 初始化操作人 & 操作日志
+document.getElementById('fOperator').value = localStorage.getItem(OPERATOR_KEY) || '';
+document.getElementById('fOperator').onchange = saveOperator;
+document.getElementById('fOperator').onblur = saveOperator;
+renderOpLog();
+populateProductSelect();
+document.getElementById('buildTag').textContent = '构建版本：'+BUILD_TAG+'（局域网共享版）';
+refreshAll();
+initData();          // 加载共享数据（自动识别飞书/局域网，多人共享、刷新保留）
+loadForm();          // 恢复本浏览器已填写的表单草稿（负责人刷新保留）
+// 表单字段实时持久化（边填边存，刷新不丢失）
+['fDate','fHour','fSpend','fGmv','fOwner','fProduct'].forEach(id=>{
+  const el=document.getElementById(id);
+  if(el){ el.addEventListener('input', saveForm); el.addEventListener('change', saveForm); }
+});
+</script>
+</body>
+</html>

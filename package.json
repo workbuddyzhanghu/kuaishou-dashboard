@@ -1,0 +1,9 @@
+{
+  "name": "dashboard-cloudbase",
+  "version": "1.0.0",
+  "description": "快手新品分品数据看板 CloudBase 云托管版",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  }
+}
