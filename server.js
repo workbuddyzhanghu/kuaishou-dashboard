@@ -12,7 +12,8 @@ const url = require('url');
 const PORT = process.env.PORT || 8080;
 const ENV = 'kuaishou-db-d0gk9inmf1d5d9927';
 const PUBLIC_DIR = path.join(__dirname, 'public');
-const CB_DEVICE_ID = 'svr_dash_' + Math.random().toString(36).slice(2, 10);
+// 使用固定设备ID，确保容器重启/部署后仍访问同一数据分区
+const CB_DEVICE_ID = process.env.CB_DEVICE_ID || 'svr_dash_fixed_2026';
 
 // ===== CloudBase API 封装 =====
 let tokenCache = { token: '', expiresAt: 0 };
@@ -57,13 +58,13 @@ async function cbAPI(method, path, body) {
 }
 
 const cb = {
-  // 查询全部文档
+  // 查询全部文档（修复：order 参数需 URL 编码，避免特殊字符导致请求失败）
   async listAll(collection) {
     const all = [];
     let offset = 0;
     const pageSize = 200;
     while (true) {
-      const q = `offset=${offset}&limit=${pageSize}&order=[{"field":"_id","direction":"desc"}]`;
+      const q = `offset=${offset}&limit=${pageSize}`;
       const r = await cbAPI('GET', `/v1/database/instances/(default)/databases/(default)/collections/${collection}/documents?${q}`);
       if (!r.list || r.list.length === 0) break;
       all.push(...r.list);
@@ -129,11 +130,25 @@ function nowStamp() {
 function normalizeRecords(docs) {
   return docs.map(d => {
     const { _id, _openid, ...r } = d;
+    // 处理 CloudBase 的各种数字类型
     if (r.hour && r.hour.$numberInt) r.hour = parseInt(r.hour.$numberInt);
+    if (r.hour && r.hour.$numberDouble) r.hour = parseInt(r.hour.$numberDouble);
     if (r.spend && r.spend.$numberInt) r.spend = parseInt(r.spend.$numberInt);
+    if (r.spend && r.spend.$numberDouble) r.spend = parseInt(r.spend.$numberDouble);
     if (r.gmv && r.gmv.$numberInt) r.gmv = parseInt(r.gmv.$numberInt);
+    if (r.gmv && r.gmv.$numberDouble) r.gmv = parseInt(r.gmv.$numberDouble);
     return r;
   });
+}
+
+// 从 CloudBase 文档中安全提取数字时间戳
+function safeTs(val) {
+  if (!val) return 0;
+  if (typeof val === 'number') return val;
+  if (val.$numberInt) return parseInt(val.$numberInt);
+  if (val.$numberLong) return parseInt(val.$numberLong);
+  if (val.$numberDouble) return parseInt(val.$numberDouble);
+  return parseInt(val) || 0;
 }
 
 function json(res, data, status) {
@@ -279,6 +294,50 @@ function serveStatic(req, res, pathname) {
   });
 }
 
+// ===== 自动备份函数（写入后触发，5分钟内不重复）=====
+let backupTimer = null;
+let lastBackupAt = 0;
+let lastBackupSig = '';
+async function autoBackup(source) {
+  if (backupTimer) clearTimeout(backupTimer);
+  backupTimer = setTimeout(async () => {
+    try {
+      // 节流：5分钟内只备份一次
+      const now = Date.now();
+      if (now - lastBackupAt < 5 * 60 * 1000) {
+        console.log('[备份] 5分钟内已备份，跳过（' + source + '）');
+        return;
+      }
+      await cbLogin();
+      const docs = await cb.listAll('dashboard_records');
+      if (docs.length === 0) { console.log('[备份] 无数据，跳过（' + source + '）'); return; }
+
+      // 内容签名：仅当记录数或最后一条 _id 变化时才备份
+      const sig = docs.length + '_' + (docs[docs.length-1]._id || '');
+      if (sig === lastBackupSig) {
+        console.log('[备份] 数据未变化，跳过（' + source + '）');
+        return;
+      }
+
+      const opLogDocs = await cb.listAll('dashboard_oplog');
+      const backupData = {
+        records: docs,
+        opLog: opLogDocs,
+        backupTime: nowStamp(),
+        backupTs: Date.now(),
+        recordCount: docs.length
+      };
+      const backupKey = 'backup_' + Date.now();
+      await cb.insert('config', { key: backupKey, value: backupData, updatedAt: Date.now() });
+      lastBackupAt = Date.now();
+      lastBackupSig = sig;
+      console.log('[备份] ' + source + '自动备份 ' + docs.length + ' 条记录');
+    } catch (e) {
+      console.log('[备份] 自动备份失败（可忽略）:', e.message);
+    }
+  }, 5000);
+}
+
 // ===== HTTP 服务器 =====
 const server = http.createServer(async (req, res) => {
   const parsed = url.parse(req.url, true);
@@ -291,6 +350,95 @@ const server = http.createServer(async (req, res) => {
   }
 
   try {
+    // ===== 备份 / 恢复 API =====
+
+    // 手动备份当前数据（备份存储在 config 集合中，无需额外创建集合）
+    if (pathname === '/api/backup' && req.method === 'POST') {
+      const docs = await cb.listAll('dashboard_records');
+      const opLogDocs = await cb.listAll('dashboard_oplog');
+      const backupData = {
+        records: docs,
+        opLog: opLogDocs,
+        backupTime: nowStamp(),
+        backupTs: Date.now(),
+        recordCount: docs.length
+      };
+      const backupKey = 'backup_' + Date.now();
+      await cb.insert('config', { key: backupKey, value: backupData, updatedAt: Date.now() });
+      console.log('[备份] 已备份 ' + docs.length + ' 条记录');
+      return json(res, { ok: true, recordCount: docs.length, message: '已备份 ' + docs.length + ' 条记录' });
+    }
+
+    // 查看备份列表
+    if (pathname === '/api/backup' && req.method === 'GET') {
+      const configDocs = await cb.listAll('config');
+      const backupDocs = configDocs.filter(d => d.key && d.key.startsWith('backup_'));
+      // 按时间倒序
+      backupDocs.sort((a, b) => {
+        const ta = safeTs((a.value || {}).backupTs);
+        const tb = safeTs((b.value || {}).backupTs);
+        return tb - ta;
+      });
+      const list = backupDocs.slice(0, 10).map(d => {
+        const v = d.value || {};
+        return {
+          _id: d._id,
+          backupTime: v.backupTime || '未知',
+          recordCount: safeTs(v.recordCount),
+          backupTs: safeTs(v.backupTs)
+        };
+      });
+      return json(res, { ok: true, backups: list });
+    }
+
+    // 从备份恢复数据
+    if (pathname === '/api/restore' && req.method === 'POST') {
+      const configDocs = await cb.listAll('config');
+      const backupDocs = configDocs.filter(d => d.key && d.key.startsWith('backup_'));
+      backupDocs.sort((a, b) => {
+        const ta = safeTs((a.value || {}).backupTs);
+        const tb = safeTs((b.value || {}).backupTs);
+        return tb - ta;
+      });
+      
+      if (backupDocs.length === 0) return json(res, { ok: false, error: '没有可用的备份' });
+      const latest = backupDocs[0];
+      const backupData = latest.value || {};
+      
+      // 先清空当前数据
+      const current = await cb.listAll('dashboard_records');
+      for (const doc of current) { await cb.remove('dashboard_records', doc._id); }
+      const currentLogs = await cb.listAll('dashboard_oplog');
+      for (const doc of currentLogs) { await cb.remove('dashboard_oplog', doc._id); }
+      
+      // 恢复记录
+      const records = backupData.records || [];
+      for (const rec of records) {
+        const { _id, _openid, ...clean } = rec;
+        try {
+          await cb.insert('dashboard_records', clean);
+        } catch (e) {
+          console.error('[恢复] 插入记录失败:', e.message);
+        }
+      }
+      
+      // 恢复操作日志
+      const opLogs = backupData.opLog || [];
+      for (const log of opLogs) {
+        const { _id, _openid, ...clean } = log;
+        try {
+          await cb.insert('dashboard_oplog', clean);
+        } catch (e) {
+          console.error('[恢复] 插入日志失败:', e.message);
+        }
+      }
+      
+      // 添加恢复日志
+      await cb.insert('dashboard_oplog', { time: nowStamp(), operator: '系统自动恢复', action: '从备份恢复数据', count: records.length });
+      
+      return json(res, { ok: true, restored: records.length, message: '已从 ' + (backupData.backupTime || '未知') + ' 的备份恢复 ' + records.length + ' 条记录' });
+    }
+
     // ===== 数据 API =====
 
     // 加载全部数据
@@ -302,7 +450,7 @@ const server = http.createServer(async (req, res) => {
         const logDocs = await cb.listAll('dashboard_oplog');
         opLog = logDocs.map(d => { const { _id, _openid, ...l } = d; return l; });
       } catch (e) { /* 日志可能为空 */ }
-      return json(res, { ok: true, records, opLog, build: '2026-07-16-cloudbase-v3' });
+      return json(res, { ok: true, records, opLog, build: '2026-08-12-recovery-v7' });
     }
 
     // 新增/更新记录
@@ -316,10 +464,8 @@ const server = http.createServer(async (req, res) => {
       }
       const docs = await cb.listAll('dashboard_records');
       const records = normalizeRecords(docs);
+      autoBackup('写入');
       return json(res, { ok: true, records });
-    }
-
-    // 删除记录
     if (pathname === '/api/records' && req.method === 'DELETE') {
       const { date, hour, product } = query;
       const existing = await cb.query('dashboard_records', { date, hour: parseInt(hour), product });
@@ -328,17 +474,30 @@ const server = http.createServer(async (req, res) => {
       }
       const docs = await cb.listAll('dashboard_records');
       const records = normalizeRecords(docs);
+      autoBackup('删除');
       return json(res, { ok: true, records });
-    }
-
-    // 清空全部记录
     if (pathname === '/api/clear' && req.method === 'POST') {
       const all = await cb.listAll('dashboard_records');
-      await cb.insert('dashboard_oplog', { time: nowStamp(), operator: '未填写', action: '清除全部数据', count: all.length });
+      const opLogDocs = await cb.listAll('dashboard_oplog');
+      
+      // 自动备份：清除前先保存一份完整备份
+      const backupData = {
+        records: all,
+        opLog: opLogDocs,
+        backupTime: nowStamp(),
+        backupTs: Date.now(),
+        recordCount: all.length
+      };
+      const backupKey = 'backup_' + Date.now();
+      await cb.insert('config', { key: backupKey, value: backupData, updatedAt: Date.now() });
+      console.log('[备份] 清除前自动备份 ' + all.length + ' 条记录');
+      
+      // 记录清除操作日志
+      await cb.insert('dashboard_oplog', { time: nowStamp(), operator: '未填写', action: '清除全部数据（已自动备份）', count: all.length });
       for (const doc of all) {
         await cb.remove('dashboard_records', doc._id);
       }
-      return json(res, { ok: true });
+      return json(res, { ok: true, backupCount: all.length });
     }
 
     // ===== 飞书配置 API =====
@@ -381,7 +540,7 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, '0.0.0.0', () => {
+server.listen(PORT, '0.0.0.0', async () => {
   const os = require('os');
   const nets = os.networkInterfaces();
   const ips = [];
@@ -397,4 +556,48 @@ server.listen(PORT, '0.0.0.0', () => {
   ips.forEach(ip => console.log('  局域网: http://' + ip + ':' + PORT));
   console.log('========================================');
   console.log('');
+  
+  // ===== 启动时备份一次 =====
+  try {
+    await cbLogin();
+    const docs = await cb.listAll('dashboard_records');
+    if (docs.length > 0) {
+      const configDocs = await cb.listAll('config');
+      const backupDocs = configDocs.filter(d => d.key && d.key.startsWith('backup_'));
+      const now = Date.now();
+      const hasRecent = backupDocs.some(d => {
+        const v = d.value || {};
+        const ts = safeTs(v.backupTs);
+        return (now - ts) < 30 * 60 * 1000;
+      });
+      if (!hasRecent) {
+        const opLogDocs = await cb.listAll('dashboard_oplog');
+        const backupData = {
+          records: docs,
+          opLog: opLogDocs,
+          backupTime: nowStamp(),
+          backupTs: Date.now(),
+          recordCount: docs.length
+        };
+        const backupKey = 'backup_' + Date.now();
+        await cb.insert('config', { key: backupKey, value: backupData, updatedAt: Date.now() });
+
+        // 清理旧备份：保留最近 20 条
+        const allBackups = configDocs.filter(d => d.key && d.key.startsWith('backup_'));
+        allBackups.sort((a, b) => {
+          return safeTs((b.value || {}).backupTs) - safeTs((a.value || {}).backupTs);
+        });
+        const toDelete = allBackups.slice(20);
+        for (const old of toDelete) {
+          try { await cb.remove('config', old._id); } catch (e2) {}
+        }
+
+        console.log('[备份] 启动时自动备份 ' + docs.length + ' 条记录' + (toDelete.length ? '，清理旧备份 ' + toDelete.length + ' 条' : ''));
+      }
+    }
+  } catch (e) {
+    console.log('[备份] 启动备份失败（可忽略）:', e.message);
+  }
+
+  console.log('[备份] 写入即备份已启用（每次录入数据后自动备份）');
 });

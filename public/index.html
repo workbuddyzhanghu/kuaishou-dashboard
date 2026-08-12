@@ -94,9 +94,12 @@
     <div class="row">
       <div><label>本看板访问地址（转发给同事即可打开）</label><input type="text" id="lanUrl" readonly autocomplete="off"></div>
       <div><button class="btn-ghost" onclick="copyLanUrl()">复制访问地址</button></div>
+      <div><button class="btn-ghost" onclick="manualBackup()">💾 立即备份</button></div>
+      <div><button class="btn-ghost" onclick="showBackups()">📋 查看备份</button></div>
       <div><span class="status" id="lanStatusText"></span></div>
     </div>
     <p class="hint">所有拿到此链接的人，打开后填写的数据都会汇总到同一份（存储在腾讯云 CloudBase 数据库）。无需任何外部云账号、不依赖内网。<br>
+    💡 建议定期点击「立即备份」；清除数据时会自动备份；从备份恢复请点「查看备份」。<br>
     若状态显示「未连接」，可能是服务器正在重启中，请稍等几秒后刷新页面。</p>
   </div>
 
@@ -207,7 +210,7 @@ const STORE_KEY = 'ks_dashboard_v1';      // 本地缓存兜底（records）
 const OPERATOR_KEY = 'ks_operator';
 const OPLOG_KEY = 'ks_op_log';
 const FORM_KEY = 'ks_form_v1';
-const BUILD_TAG = '2026-08-12-threshold-update-v6';
+const BUILD_TAG = '2026-08-12-recovery-v7';
 
 // records 与 opLog 为共享数据，来源为局域网服务器；表单草稿与操作人保留在本地浏览器
 let records = [];
@@ -698,6 +701,57 @@ document.querySelectorAll('.tab').forEach(tab=>{
     if(tab.dataset.tab==='summary'){ renderSummary(); }
   };
 });
+
+// ===== 数据备份 / 恢复功能 =====
+async function manualBackup(){
+  try{
+    const r=await fetch('/api/backup',{method:'POST'});
+    const j=await r.json();
+    if(j.ok){
+      alert('✅ 备份成功！已备份 '+j.recordCount+' 条记录。\n\n备份时间：'+new Date().toLocaleString());
+    }else{
+      alert('备份失败：'+(j.error||'未知错误'));
+    }
+  }catch(e){
+    alert('备份失败（网络错误）：'+e.message);
+  }
+}
+
+async function showBackups(){
+  try{
+    const r=await fetch('/api/backup');
+    const j=await r.json();
+    if(!j.ok){ alert('获取备份列表失败：'+(j.error||'未知错误')); return; }
+    const backups=j.backups||[];
+    if(backups.length===0){
+      alert('暂无备份记录。\n\n点击「💾 立即备份」来创建第一个备份。');
+      return;
+    }
+    let msg='📋 备份列表（最近10条）：\n\n';
+    backups.forEach((b,i)=>{
+      msg+=(i+1)+'. '+b.backupTime+' | '+b.recordCount+' 条记录\n';
+    });
+    // 如果消息太长，不显示备份ID，直接给恢复选项
+    const restore=confirm(msg+'\n\n是否从最新备份恢复数据？\n\n⚠ 恢复将覆盖当前所有数据！点击「确定」从最新备份恢复，点击「取消」返回。');
+    if(restore){
+      const ok=confirm('⚠ 确认从备份恢复？\n\n此操作将：\n1. 清空当前全部数据\n2. 从最新备份恢复所有记录\n\n此操作不可逆！');
+      if(!ok) return;
+      const rr=await fetch('/api/restore',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});
+      const rj=await rr.json();
+      if(rj.ok){
+        const st=document.getElementById('lanStatusText');
+        if(st) st.textContent='已连接云端服务器，多人实时共享（存于 CloudBase 数据库）。';
+        alert('✅ 恢复成功！\n已恢复 '+rj.restored+' 条记录。');
+        // 刷新页面
+        location.reload();
+      }else{
+        alert('恢复失败：'+(rj.error||'未知错误'));
+      }
+    }
+  }catch(e){
+    alert('操作失败（网络错误）：'+e.message);
+  }
+}
 function fallbackCopy(text){
   try{
     const ta=document.createElement('textarea'); ta.value=text; ta.style.position='fixed'; ta.style.opacity='0';
