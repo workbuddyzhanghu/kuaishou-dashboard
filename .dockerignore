@@ -1,0 +1,11 @@
+node_modules/
+.git/
+.env
+*.log
+.DS_Store
+cloudbaserc.json
+package-lock.json
+check_data.js
+fix_permissions.js
+check_deploy.js
+check_admin.js

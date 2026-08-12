@@ -450,7 +450,7 @@ const server = http.createServer(async (req, res) => {
         const logDocs = await cb.listAll('dashboard_oplog');
         opLog = logDocs.map(d => { const { _id, _openid, ...l } = d; return l; });
       } catch (e) { /* 日志可能为空 */ }
-      return json(res, { ok: true, records, opLog, build: '2026-08-12-recovery-v7' });
+      return json(res, { ok: true, records, opLog, build: '2026-08-12-restore-v8' });
     }
 
     // 新增/更新记录
