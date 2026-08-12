@@ -466,6 +466,8 @@ const server = http.createServer(async (req, res) => {
       const records = normalizeRecords(docs);
       autoBackup('写入');
       return json(res, { ok: true, records });
+    }
+
     if (pathname === '/api/records' && req.method === 'DELETE') {
       const { date, hour, product } = query;
       const existing = await cb.query('dashboard_records', { date, hour: parseInt(hour), product });
@@ -476,6 +478,8 @@ const server = http.createServer(async (req, res) => {
       const records = normalizeRecords(docs);
       autoBackup('删除');
       return json(res, { ok: true, records });
+    }
+
     if (pathname === '/api/clear' && req.method === 'POST') {
       const all = await cb.listAll('dashboard_records');
       const opLogDocs = await cb.listAll('dashboard_oplog');
